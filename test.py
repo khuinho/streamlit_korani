@@ -72,6 +72,7 @@ def validate(wlfw_val_dataloader, pfld_backbone):
 
     nme_list = []
     cost_time = []
+    result = 5 
     with torch.no_grad():
         for img, landmark_gt, _, _ in wlfw_val_dataloader:
             img = img.to(device)
@@ -88,21 +89,22 @@ def validate(wlfw_val_dataloader, pfld_backbone):
             landmark_gt = landmark_gt.reshape(landmark_gt.shape[0], -1,
                                               2).cpu().numpy()  # landmark_gt
 
-            if args.show_image:
+            if args.show_image and result > 0:
                 show_img = np.array(
                     np.transpose(img[0].cpu().numpy(), (1, 2, 0)))
                 show_img = (show_img * 255).astype(np.uint8)
-                np.clip(show_img, 0, 255)
-
                 pre_landmark = landmarks[0] * [112, 112]
-
-                cv2.imwrite("show_img.jpg", show_img)
-                img_clone = cv2.imread("show_img.jpg")
+                np.clip(show_img, 0, 255)
+                
+                cv2.imwrite("show_img" + str(result) + ".jpg", show_img)
+                img_clone = cv2.imread("show_img"+str(result)+".jpg")
 
                 for (x, y) in pre_landmark.astype(np.int32):
                     cv2.circle(img_clone, (x, y), 1, (255, 0, 0), -1)
-                cv2.imshow("show_img.jpg", img_clone)
-                cv2.waitKey(0)
+                cv2.imwrite("show_img"+str(result)+".jpg", img_clone)
+                result -= 1
+                #cv2.imshow("show_img.jpg", img_clone)
+                #cv2.waitKey(0)
 
             nme_temp = compute_nme(landmarks, landmark_gt)
             for item in nme_temp:

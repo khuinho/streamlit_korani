@@ -165,6 +165,8 @@ class WLFWDatasets(data.Dataset):
 
     def __getitem__(self, index):
         self.line = self.lines[index].strip().split()
+        pfld_idx = self.line[0].find("pfld")
+        self.line[0] = "./" + self.line[0][pfld_idx + 5:]
         self.img = cv2.imread(self.line[0])
         self.landmark = np.asarray(self.line[1:197], dtype=np.float32)
         self.attribute = np.asarray(self.line[197:203], dtype=np.int32)
