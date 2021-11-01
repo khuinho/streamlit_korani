@@ -75,7 +75,7 @@ def main(args):
 def parse_args():
     parser = argparse.ArgumentParser(description='Testing')
     parser.add_argument('--model_path',
-                        default="./checkpoint/snapshot/checkpoint.pth.tar",
+                        default="./checkpoint/snapshot/checkpoint_pfld.pth.tar",
                         type=str)
     args = parser.parse_args()
     return args
