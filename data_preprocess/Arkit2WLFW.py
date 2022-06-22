@@ -1,13 +1,30 @@
+# From data Imagefolder process PFLD to prepare WLFW type dataset
 import os, sys
+sys.path.append('.')
+sys.path.append('..')
+import argparse
+import pathlib
 import glob
 import cv2
 import json
-import shutil
 import numpy as np
 import skimage.io as ski
 import skimage.transform as skt
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), ".")))
+
+import torch
+from torchvision import transforms
+from torch.utils.data import DataLoader
+import torch.backends.cudnn as cudnn
+
 from pfld.utils import calculate_pitch_yaw_roll
+from dataset.datasets import WLFWDatasets
+from models.pfld import PFLDInference
+
+cudnn.benchmark = True
+cudnn.determinstic = True
+cudnn.enabled = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def rotate(angle, center, landmark):
     rad = angle * np.pi / 180.0
@@ -25,7 +42,7 @@ def rotate(angle, center, landmark):
                              M[1,0]*x+M[1,1]*y+M[1,2]) for (x,y) in landmark])
     return M, landmark_
 
-class ImageDate():
+class ImageData():
     def __init__(self, img, landmark, box, flag, image_size=112):
         self.image_size = image_size
         #0-195: landmark 坐标点  196-199: bbox 坐标点;
@@ -54,6 +71,59 @@ class ImageDate():
         self.landmarks = []
         self.boxes = []
 
+    def set_lmks(self, landmark):
+        self.landmark = landmark
+    
+    def set_bbox(self, box):
+        self.box = box
+
+    def set_flag(self, flag):
+        flag = list(map(bool, flag))
+        self.pose = flag[0]
+        self.expression = flag[1]
+        self.illumination = flag[2]
+        self.make_up = flag[3]
+        self.occlusion = flag[4]
+        self.blur = flag[5]
+
+    def get_img(self):
+        xy = np.min(self.landmark, axis=0).astype(np.int32) 
+        zz = np.max(self.landmark, axis=0).astype(np.int32)
+        wh = zz - xy + 1
+
+        center = (xy + wh/2).astype(np.int32)
+        img = self.raw_img
+        boxsize = int(np.max(wh)*1.4)
+        xy = center - boxsize//2
+        x1, y1 = xy
+        x2, y2 = xy + boxsize
+        height, width, _ = img.shape
+        dx = max(0, -x1)
+        dy = max(0, -y1)
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        
+        edx = max(0, x2 - width)
+        edy = max(0, y2 - height)
+        x2 = min(width, x2)
+        y2 = min(height, y2)
+
+        imgT = img[y1:y2, x1:x2]
+        
+        if (dx > 0 or dy > 0 or edx > 0 or edy > 0):
+            imgT = cv2.copyMakeBorder(imgT, dy, edy, dx, edx, cv2.BORDER_CONSTANT, 0)
+        if imgT.shape[0] == 0 or imgT.shape[1] == 0:
+            imgTT = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            for x, y in (self.landmark+0.5).astype(np.int32):
+                cv2.circle(imgTT, (x, y), 1, (0, 0, 255))
+            cv2.imshow('0', imgTT)
+            if cv2.waitKey(0) == 27:
+                exit()
+        imgT = cv2.resize(imgT, (self.image_size, self.image_size))
+        
+        self.raw_img = imgT
+        return imgT
+
     def load_data(self, is_train, repeat, mirror=None):
         if (mirror is not None):
             with open(mirror, 'r') as f:
@@ -67,7 +137,8 @@ class ImageDate():
 
         center = (xy + wh/2).astype(np.int32)
         img = self.raw_img
-        boxsize = int(np.max(wh)*1.2)
+        boxsize = int(np.max(wh)*1.4)
+
         xy = center - boxsize//2
         x1, y1 = xy
         x2, y2 = xy + boxsize
@@ -103,12 +174,11 @@ class ImageDate():
             while len(self.imgs) < repeat:
                 angle = np.random.randint(-30, 30)
                 cx, cy = center
-                cx = cx + int(np.random.randint(-boxsize*0.1, boxsize*0.1))
+                cx = cx + int(np.random.randint(-boxsize * 0.1, boxsize * 0.1))
                 cy = cy + int(np.random.randint(-boxsize * 0.1, boxsize * 0.1))
                 M, landmark = rotate(angle, (cx,cy), self.landmark)
 
                 imgT = cv2.warpAffine(img, M, (int(img.shape[1]*1.1), int(img.shape[0]*1.1)))
-
                 
                 wh = np.ptp(landmark, axis=0).astype(np.int32) + 1
                 size = np.random.randint(int(np.min(wh)), np.ceil(np.max(wh) * 1.25))
@@ -150,7 +220,7 @@ class ImageDate():
         labels = []
         TRACKED_POINTS = [33, 38, 50, 46, 60, 64, 68, 72, 55, 59, 76, 82, 85, 16]
         for i, (img, lanmark) in enumerate(zip(self.imgs, self.landmarks)):
-            assert lanmark.shape == (96, 2)
+            assert lanmark.shape == (98, 2)
             save_path = os.path.join(path, prefix+'_'+str(i)+'.png')
             assert not os.path.exists(save_path), save_path
             cv2.imwrite(save_path, img)
@@ -196,23 +266,45 @@ def get_image(img_path):
 
     return cropped[:,:,::-1]
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Testing')
+    parser.add_argument('--model_path',
+                        default="./checkpoint/checkpoint_pfld.pth.tar",
+                        type=str)
+    args = parser.parse_args()
+    return args
+
 if __name__ == '__main__':
+    args = parse_args()
 
-    img_dir = './data'
+    # Set data folder
+    img_dir = pathlib.Path('data')
+    videodir = pathlib.Path('*')
+    filepath = pathlib.Path('*.json')
+    input_dirs = img_dir/videodir/filepath
     # Grap image path and json
-    json_list = glob.glob(img_dir+"/*/*.json")
-    json_list = json_list[0:10]
-
-    outDir = "./data/result"
+    json_list = glob.glob(str(input_dirs))
+    json_list = json_list[0:1]
+    outDir = pathlib.Path("data/result")
+    
     os.makedirs(outDir, exist_ok=True)
     save_img = os.path.join(outDir, 'imgs')
     if not os.path.exists(save_img):
         os.mkdir(save_img)
     # Get index map from arkit to wflw landmark
-    idxmap = get_index_map("./data/idxmap.txt")
+    idxmap_path = str(pathlib.Path("data/idxmap.txt"))
+    idxmap = get_index_map(idxmap_path)
+
     labels = []
     is_train = True
     Mirror_file = None
+
+    # Load pfld models
+    checkpoint = torch.load(args.model_path, map_location=device)
+    pfld_backbone = PFLDInference().to(device)
+    pfld_backbone.load_state_dict(checkpoint['pfld_backbone'])
+    pfld_backbone.eval()
+    transform = transforms.Compose([transforms.ToTensor()])
 
     for i, item in enumerate(json_list):
         # load annotaion
@@ -221,9 +313,7 @@ if __name__ == '__main__':
         with open(item) as f:
             anno = json.load(f)
         resized = get_image(img_name) # Fix viewSize image(range of arkit)
-        a = cv2.imread(img_name)
-        print(type(resized), resized.shape)
-        print(type(a), a.shape)
+        
         # filter landmark info
         x = [x['x'] for x in anno["ppoints"]]
         y = [x['y'] for x in anno["ppoints"]]
@@ -248,11 +338,32 @@ if __name__ == '__main__':
         # set attribute - pose expression illumination make-up occlusion blur
         attribute = [0 for _ in range(6)]
         # expression : load blendshape value and set 1
-        if max(anno['blendShapes'].values()) > 0.5:
-            attribute[1] = 1
-        
+        # Set expression
+        attribute[1] = 1
+        # Reset expression by fileName
+        if fname[-1] == 'x': #max(anno['blendShapes'].values()) > 0.5:
+            attribute[1] = 0
+                
         # item: image file path
-        Img = ImageDate(resized, wlfw_lmks, bbox, attribute)
+        Img = ImageData(resized, wlfw_lmks, bbox, attribute)
+        cropped = Img.get_img()
+        
+        # image to tensor
+        t_resized = transform(cropped)
+        t_resized = torch.unsqueeze(t_resized, 0)
+        t_resized = t_resized.to(device)
+        
+        # Process landmark
+        _, landmarks = pfld_backbone(t_resized)
+        landmarks = landmarks.detach().cpu().numpy()
+        landmarks = landmarks.reshape(-1, 2)  # landmark
+        # Recover landmark to pixel level
+        landmarks *= cropped.shape[1]
+        # landmarks[:,0]+= min(Img.landmark[:,0])
+        # landmarks[:,1]+= min(Img.landmark[:,1])
+
+        Img.set_lmks(landmarks)
+
         Img.load_data(is_train, 10, Mirror_file)
         _, filename = os.path.split(img_name)
         filename, _ = os.path.splitext(filename)
