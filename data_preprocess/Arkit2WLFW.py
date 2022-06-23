@@ -10,6 +10,8 @@ import json
 import numpy as np
 import skimage.io as ski
 import skimage.transform as skt
+import matplotlib.pyplot as plt
+
 
 import torch
 from torchvision import transforms
@@ -42,8 +44,20 @@ def rotate(angle, center, landmark):
                              M[1,0]*x+M[1,1]*y+M[1,2]) for (x,y) in landmark])
     return M, landmark_
 
+def draw_example(img, lmks, img_size, imgname):
+    # Draw image
+    fig = plt.figure()
+    imgplot = plt.imshow(img[:,:,::-1])
+
+    # draw landmark
+    plt.scatter(lmks[:,0]*img_size, lmks[:,1]*img_size, c='blue', s=1)
+
+    # save image
+    plt.savefig(imgname+".png")
+    plt.close()
+
 class ImageData():
-    def __init__(self, img, landmark, box, flag, image_size=112):
+    def __init__(self, img, landmark, box, flag, network=None, transform=None, image_size=112):
         self.image_size = image_size
         #0-195: landmark 坐标点  196-199: bbox 坐标点;
         #200: 姿态(pose)         0->正常姿态(normal pose)          1->大的姿态(large pose)
@@ -66,6 +80,8 @@ class ImageData():
         self.blur = flag[5]
         self.raw_img = img # json data path
         self.img = None
+        self.network = network
+        self.transform = transform
 
         self.imgs = []
         self.landmarks = []
@@ -121,10 +137,10 @@ class ImageData():
                 exit()
         imgT = cv2.resize(imgT, (self.image_size, self.image_size))
         
-        self.raw_img = imgT
+        # self.raw_img = imgT
         return imgT
 
-    def load_data(self, is_train, repeat, mirror=None):
+    def load_data(self, is_train, repeat, mirror=None, draw=False):
         if (mirror is not None):
             with open(mirror, 'r') as f:
                 lines = f.readlines()
@@ -137,7 +153,7 @@ class ImageData():
 
         center = (xy + wh/2).astype(np.int32)
         img = self.raw_img
-        boxsize = int(np.max(wh)*1.4)
+        boxsize = int(np.max(wh)*1.2)
 
         xy = center - boxsize//2
         x1, y1 = xy
@@ -163,12 +179,43 @@ class ImageData():
             cv2.imshow('0', imgTT)
             if cv2.waitKey(0) == 27:
                 exit()
+        # Network input
         imgT = cv2.resize(imgT, (self.image_size, self.image_size))
+        
+        # transform to tensor
+        t_resized = self.transform(imgT)
+        t_resized = torch.unsqueeze(t_resized, 0)
+        t_resized = t_resized.to(device)
+        
+        # get lmks
+        _, pfld_lmk = self.network(t_resized)
+        pfld_lmk = pfld_lmk.detach().cpu().numpy()
+        pfld_lmk = pfld_lmk.reshape(-1, 2)  # landmark
+        
+        if draw:
+            draw_example(imgT, pfld_lmk, self.image_size, "imgT.png")
+
+        # save cropped image
+        self.landmarks.append(pfld_lmk)
+
+        # resize output lmk to pixel level fit input image
+        # add input image starting point to output lmk
+        landmark = pfld_lmk * boxsize + xy
+        
+        # Update landmark
+        self.landmark = landmark
+
+        if draw:
+            draw_example(img, landmark, 1.0, "img")
+
+        # raw input image landmark to 0~1 network input image level
         landmark = (self.landmark - xy)/boxsize
+        
         assert (landmark >= 0).all(), str(landmark) + str([dx, dy])
         assert (landmark <= 1).all(), str(landmark) + str([dx, dy])
+
         self.imgs.append(imgT)
-        self.landmarks.append(landmark)
+        # self.landmarks.append(landmark)
 
         if is_train:
             while len(self.imgs) < repeat:
@@ -210,6 +257,10 @@ class ImageData():
                     landmark[:,0] = 1 - landmark[:,0]
                     landmark = landmark[mirror_idx]
                     imgT = cv2.flip(imgT, 1)
+
+                if draw:
+                    draw_example(imgT, landmark, self.image_size, "img_"+str(len(self.imgs)))
+
                 self.imgs.append(imgT)
                 self.landmarks.append(landmark)
 
@@ -284,7 +335,7 @@ if __name__ == '__main__':
     input_dirs = img_dir/videodir/filepath
     # Grap image path and json
     json_list = glob.glob(str(input_dirs))
-    json_list = json_list[0:1]
+    json_list = json_list[0:10]
     outDir = pathlib.Path("data/result")
     
     os.makedirs(outDir, exist_ok=True)
@@ -324,8 +375,6 @@ if __name__ == '__main__':
         wlfw_lmks = np.zeros((96,2), np.float32)
         for k,v in idxmap.items():
             wlfw_lmks[v] = lmks[k]
-            
-        #TODO Get iris        
 
         # Get bbox size from total landmark
         bbox_x1 = int(min(x))
@@ -339,32 +388,13 @@ if __name__ == '__main__':
         attribute = [0 for _ in range(6)]
         # expression : load blendshape value and set 1
         # Set expression
-        attribute[1] = 1
-        # Reset expression by fileName
-        if fname[-1] == 'x': #max(anno['blendShapes'].values()) > 0.5:
-            attribute[1] = 0
+        #TODO Reset expression from json file <- Update key
+        if 'expression' in anno.keys(): #max(anno['blendShapes'].values()) > 0.5:
+            attribute[1] = anno['expression']
                 
         # item: image file path
-        Img = ImageData(resized, wlfw_lmks, bbox, attribute)
-        cropped = Img.get_img()
-        
-        # image to tensor
-        t_resized = transform(cropped)
-        t_resized = torch.unsqueeze(t_resized, 0)
-        t_resized = t_resized.to(device)
-        
-        # Process landmark
-        _, landmarks = pfld_backbone(t_resized)
-        landmarks = landmarks.detach().cpu().numpy()
-        landmarks = landmarks.reshape(-1, 2)  # landmark
-        # Recover landmark to pixel level
-        landmarks *= cropped.shape[1]
-        # landmarks[:,0]+= min(Img.landmark[:,0])
-        # landmarks[:,1]+= min(Img.landmark[:,1])
-
-        Img.set_lmks(landmarks)
-
-        Img.load_data(is_train, 10, Mirror_file)
+        Img = ImageData(resized, wlfw_lmks, bbox, attribute, network=pfld_backbone, transform=transform)
+        Img.load_data(is_train, 10, Mirror_file, draw=False)
         _, filename = os.path.split(img_name)
         filename, _ = os.path.splitext(filename)
         label_txt = Img.save_data(save_img, str(i)+'_' + filename)
