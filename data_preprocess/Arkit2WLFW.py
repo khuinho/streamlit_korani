@@ -140,7 +140,7 @@ class ImageData():
         # self.raw_img = imgT
         return imgT
 
-    def load_data(self, is_train, repeat, mirror=None, draw=False):
+    def load_data(self, is_train, repeat, img_name, mirror=None, draw=False):
         if (mirror is not None):
             with open(mirror, 'r') as f:
                 lines = f.readlines()
@@ -204,15 +204,22 @@ class ImageData():
         
         # Update landmark
         self.landmark = landmark
-
+        
         if draw:
             draw_example(img, landmark, 1.0, "img")
 
         # raw input image landmark to 0~1 network input image level
-        landmark = (self.landmark - xy)/boxsize
+        landmark = pfld_lmk # (self.landmark - xy)/boxsize
         
-        assert (landmark >= 0).all(), str(landmark) + str([dx, dy])
-        assert (landmark <= 1).all(), str(landmark) + str([dx, dy])
+        if (landmark < 0).all() or (landmark > 1).all():
+            print(img_name, "is Clipped")
+
+            print("original:", str(landmark) + str([dx, dy]))
+            np.clip(landmark, 0, 1, out=landmark)
+            print("clipped:", str(landmark) + str([dx, dy]))
+
+        # assert (landmark >= 0).all(), str(landmark) + str([dx, dy])
+        # assert (landmark <= 1).all(), str(landmark) + str([dx, dy])
 
         self.imgs.append(imgT)
         # self.landmarks.append(landmark)
@@ -318,10 +325,18 @@ def get_image(img_path):
     return cropped[:,:,::-1]
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Testing')
+    parser = argparse.ArgumentParser(description='Help for data preprocessing arguments')
     parser.add_argument('--model_path',
                         default="./checkpoint/checkpoint_pfld.pth.tar",
                         type=str)
+    parser.add_argument('--imgs_path',
+                        default="data",
+                        type=str)
+    parser.add_argument('--output',
+                        default="data/result",
+                        type=str)
+    parser.add_argument('--train', default=False, action='store_true')
+                        
     args = parser.parse_args()
     return args
 
@@ -329,14 +344,15 @@ if __name__ == '__main__':
     args = parse_args()
 
     # Set data folder
-    img_dir = pathlib.Path('data')
-    videodir = pathlib.Path('*')
+    img_dir = pathlib.Path(args.imgs_path)
+    # videodir = pathlib.Path('*')
     filepath = pathlib.Path('*.json')
-    input_dirs = img_dir/videodir/filepath
+    # input_dirs = img_dir/videodir/filepath
+    input_dirs = img_dir/filepath
     # Grap image path and json
     json_list = glob.glob(str(input_dirs))
-    json_list = json_list[0:10]
-    outDir = pathlib.Path("data/result")
+    # json_list = json_list[0:10]
+    outDir = pathlib.Path(args.output)
     
     os.makedirs(outDir, exist_ok=True)
     save_img = os.path.join(outDir, 'imgs')
@@ -347,7 +363,7 @@ if __name__ == '__main__':
     idxmap = get_index_map(idxmap_path)
 
     labels = []
-    is_train = True
+    # is_train = True
     Mirror_file = None
 
     # Load pfld models
@@ -389,12 +405,13 @@ if __name__ == '__main__':
         # expression : load blendshape value and set 1
         # Set expression
         #TODO Reset expression from json file <- Update key
-        if 'expression' in anno.keys(): #max(anno['blendShapes'].values()) > 0.5:
-            attribute[1] = anno['expression']
+        if 'face_expression' in anno.keys(): #max(anno['blendShapes'].values()) > 0.5:
+            if anno['face_expression'] <= 1:                
+                attribute[1] = anno['face_expression']
                 
         # item: image file path
         Img = ImageData(resized, wlfw_lmks, bbox, attribute, network=pfld_backbone, transform=transform)
-        Img.load_data(is_train, 10, Mirror_file, draw=False)
+        Img.load_data(args.train, 10, img_name, Mirror_file, draw=False)
         _, filename = os.path.split(img_name)
         filename, _ = os.path.splitext(filename)
         label_txt = Img.save_data(save_img, str(i)+'_' + filename)
@@ -403,6 +420,6 @@ if __name__ == '__main__':
             print('file: {}/{}'.format(i+1, len(json_list)))
 
     # Write data
-    with open(os.path.join(outDir, 'test.txt'),'w') as f:
+    with open(os.path.join(outDir, 'list.txt'),'w') as f:
         for label in labels:
             f.writelines(label)
