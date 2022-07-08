@@ -1,4 +1,5 @@
 import argparse
+import pathlib
 
 import numpy as np
 import cv2
@@ -22,7 +23,19 @@ def main(args):
     transform = torchvision.transforms.Compose(
         [torchvision.transforms.ToTensor()])
 
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(str(pathlib.Path(args.input_path)))
+
+    if not (args.output_path is None):
+        frame_width = int(cap.get(3))
+        frame_height = int(cap.get(4))
+        size = (frame_width, frame_height)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        result_path = pathlib.Path(args.output_path)
+        result = cv2.VideoWriter(str(result_path), 
+                            cv2.VideoWriter_fourcc(*'MJPG'),
+                            fps, size)
+
     while True:
         ret, img = cap.read()
         if not ret: break
@@ -66,17 +79,31 @@ def main(args):
 
             for (x, y) in pre_landmark.astype(np.int32):
                 cv2.circle(img, (x1 + x, y1 + y), 1, (0, 0, 255))
-
-        cv2.imshow('face_landmark_68', img)
-        if cv2.waitKey(10) == 27:
-            break
-
+        if args.image_show:
+            cv2.imshow('face_landmark_68', img)
+            if cv2.waitKey(10) == 27:
+                break
+        #save result video
+        if not (args.output_path is None):
+            result.write(img)
+    
+    cap.release()
+    result.release()
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Testing')
     parser.add_argument('--model_path',
                         default="./checkpoint/snapshot/checkpoint_pfld.pth.tar",
                         type=str)
+    parser.add_argument('--input_path',
+                        default=0,
+                        type=str)
+    parser.add_argument('--output_path',
+                        default=None,
+                        type=str)
+    parser.add_argument('--image_show',
+                        default=False,
+                        action='store_true')
     args = parser.parse_args()
     return args
 
