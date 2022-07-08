@@ -5,6 +5,7 @@
 # ------------------------------------------------------------------------------
 import argparse
 import time
+import pathlib, os
 
 import cv2
 import numpy as np
@@ -67,12 +68,12 @@ def compute_auc(errors, failureThreshold, step=0.0001, showCurve=True):
     return AUC, failureRate
 
 
-def validate(wlfw_val_dataloader, pfld_backbone):
+def validate(wlfw_val_dataloader, pfld_backbone, output_path):
     pfld_backbone.eval()
 
     nme_list = []
     cost_time = []
-    result = 5 
+    result = 100 
     with torch.no_grad():
         for img, landmark_gt, _, _ in wlfw_val_dataloader:
             img = img.to(device)
@@ -96,12 +97,12 @@ def validate(wlfw_val_dataloader, pfld_backbone):
                 pre_landmark = landmarks[0] * [112, 112]
                 np.clip(show_img, 0, 255)
                 
-                cv2.imwrite("show_img" + str(result) + ".jpg", show_img)
-                img_clone = cv2.imread("show_img"+str(result)+".jpg")
-
+                # cv2.imwrite(output_path / "show_img" + str(result) + ".jpg", show_img)
+                # img_clone = cv2.imread(output_path / "show_img"+str(result)+".jpg")
+                img_clone = show_img.copy()
                 for (x, y) in pre_landmark.astype(np.int32):
                     cv2.circle(img_clone, (x, y), 1, (255, 0, 0), -1)
-                cv2.imwrite("show_img"+str(result)+".jpg", img_clone)
+                cv2.imwrite(str(output_path/ str("show_img"+str(result)+".jpg")), img_clone)
                 result -= 1
                 #cv2.imshow("show_img.jpg", img_clone)
                 #cv2.waitKey(0)
@@ -123,6 +124,11 @@ def validate(wlfw_val_dataloader, pfld_backbone):
 
 
 def main(args):
+    # make output folder
+    output_path = pathlib.Path(args.output)
+    os.makedirs(str(output_path), exist_ok=True)
+
+
     checkpoint = torch.load(args.model_path, map_location=device)
     pfld_backbone = PFLDInference().to(device)
     pfld_backbone.load_state_dict(checkpoint['pfld_backbone'])
@@ -134,7 +140,7 @@ def main(args):
                                      shuffle=False,
                                      num_workers=0)
 
-    validate(wlfw_val_dataloader, pfld_backbone)
+    validate(wlfw_val_dataloader, pfld_backbone, output_path)
 
 
 def parse_args():
@@ -145,7 +151,10 @@ def parse_args():
     parser.add_argument('--test_dataset',
                         default='./data/test_data/list.txt',
                         type=str)
-    parser.add_argument('--show_image', default=False, type=bool)
+    parser.add_argument('--show_image', default=False, action='store_true')
+    parser.add_argument('--output',
+                        default='./results/test_data/',
+                        type=str)
     args = parser.parse_args()
     return args
 
