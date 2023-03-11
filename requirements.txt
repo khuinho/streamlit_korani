@@ -3,4 +3,5 @@ pathlib
 opencv-python
 torch
 torchvision
-PIL
+pillow
+image
