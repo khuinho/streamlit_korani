@@ -464,10 +464,10 @@ def parse_args():
                         default="./checkpoint/checkpoint/checkpoint_pfld.pth.tar",
                         type=str)
     parser.add_argument('--imgs_path',
-                        default="data/data",
+                        default="D:\pfld_data\pfld_data\data\data",
                         type=str)
     parser.add_argument('--output',
-                        default="data/result",
+                        default="D:\pfld_data\pfld_data\data//result",
                         type=str)
     parser.add_argument('--train', default=True, action='store_true')
                         
@@ -477,9 +477,9 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
 
-    rootdir = '.'
-    save_path = './/data//data//'
-    mth_idxmap_path = 'data//mth_idxmap.txt'
+    ##rootdir = '.'
+    ##save_path = './/data//data//'
+    mth_idxmap_path = 'D://pfld_data//pfld_data//data//mth_idxmap.txt'
     print('mth preprocessing:\n')
     #mth_preprocess(rootdir, save_path, mth_idxmap_path)
     
