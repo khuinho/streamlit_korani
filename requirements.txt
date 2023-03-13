@@ -6,4 +6,3 @@ torchvision
 pillow
 image
 matplotlib
-
