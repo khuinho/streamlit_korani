@@ -1,6 +1,6 @@
 streamlit==1.18.1
 pathlib
-opencv-python
+opencv-python-headless
 torch
 torchvision
 pillow
