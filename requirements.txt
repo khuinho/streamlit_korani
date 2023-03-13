@@ -1,8 +1,0 @@
-streamlit
-pathlib
-opencv-python-headless
-torch
-torchvision
-pillow
-image
-matplotlib
