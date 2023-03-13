@@ -5,8 +5,5 @@ torch
 torchvision
 pillow
 image
-<<<<<<< HEAD
 matplotlib
-=======
-matplotlib
->>>>>>> 92b0c953c30630a3874362044cb4991b3cb0e3c5
+
