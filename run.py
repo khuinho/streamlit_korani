@@ -52,7 +52,7 @@ else:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     
-    model_path = 'checkpoint\snapshot\checkpoint\snapshot\checkpoint_epoch_280.pth.tar'
+    model_path = 'checkpoint//snapshot//checkpoint//snapshot//checkpoint_epoch_280.pth.tar'
     
     input_path = st_img_path
     output_path = 'output\\'+uploaded_file.name
