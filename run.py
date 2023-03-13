@@ -5,7 +5,6 @@ import cv2
 
 import torch
 import torchvision
-import pandas as pd 
 import matplotlib.pyplot as plt 
 import matplotlib.image as Image
 
@@ -29,7 +28,10 @@ def make_line(p1, p2):
     plt.scatter(new_lm_x[p2], new_lm_y[p2], s= 1, c = 'r')
     plt.text((new_lm_x[p1]+new_lm_x[p2])/2-150, (new_lm_y[p1]+new_lm_y[p1])/2+100, str(round(distance,2))+'cm', c = 'b')
     plt.plot([new_lm_x[p1], new_lm_x[p2]],[new_lm_y[p1], new_lm_y[p2]], c = 'b')
-
+    
+def plot_img(x_list, y_list):
+    for i in range(0,len(x_list)):
+        plt.scatter(x_list[i], y_list[i], c ='r')
 
 # streamlit image upload
 
@@ -56,7 +58,9 @@ else:
     
     input_path = st_img_path
     output_path = 'output\\'+uploaded_file.name
-    eye_cm = float(5)
+    eye_cm = 0
+    
+    eye_cm = st.number_input('동공 사이 거리 입력')
     
     output_path_trigger = True
     image_show = False
@@ -156,18 +160,20 @@ else:
         image = Image.imread(input_path)
         plt.imshow(image)
 
-        #left_eye (60, 64)
-        make_line(60,64)
-        # right eye ()
-        make_line(68,72)
-        # jaw line (0, 32)
-        make_line(0,32)
-        # nose_line(51, 54)
-        #make_line(51,54)
-        # mouth line(76, 82)
-        make_line(76, 82)
+        ##left_eye (60, 64)
+        #make_line(60,64)
+        ## right eye ()
+        #make_line(68,72)
+        ## jaw line (0, 32)
+        #make_line(0,32)
+        ## nose_line(51, 54)
+        ##make_line(51,54)
+        ## mouth line(76, 82)
+        #make_line(76, 82)
 
+        plot_img(new_lm_x, new_lm_y)
         plt.savefig(output_path)
+
 
         image_origin = Img.open(st_img_path)
         image_predict = Img.open(output_path)
@@ -181,7 +187,17 @@ else:
             st.write('output_image')
             st.image(image_predict, caption = 'Result',width = 350)
 
+        distance = dist(60, 64)
+        st.write('left_eye: '+str(round(distance,2))+'cm')
 
+        distance = dist(68, 72)
+        st.write('right_eye: '+str(round(distance,2))+'cm')
+
+        distance = dist(0, 32)
+        st.write('jaw_line: '+str(round(distance,2))+'cm')
+
+        distance = dist(76, 82)
+        st.write('mouth_line: '+str(round(distance,2))+'cm')
         #image = Img.open('data2//'+big+'_'+small+'.jpg')
         #st.image(image, caption= big+'_'+small, width = 700)
     except:
